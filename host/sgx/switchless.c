@@ -10,6 +10,7 @@
 #include "../hostthread.h"
 #include "../ocalls.h"
 #include "enclave.h"
+#include "switchless_u.h"
 
 /**
  * Number of iterations an ocall worker thread would spin before going to sleep
@@ -29,10 +30,16 @@ static void* _switchless_ocall_worker(void* arg)
         volatile oe_call_host_function_args_t* local_call_arg = NULL;
         if ((local_call_arg = context->call_arg) != NULL)
         {
-            context->call_arg = NULL;
-
+            // Handle the switchless call, but do not clear the slot yet. Since
+            // the slot is not empty, any new incoming switchless call request
+            // will be scheduled in another available work thread and get
+            // handled immediately.
             oe_handle_call_host_function(
                 (uint64_t)local_call_arg, context->enclave);
+
+            // After handling the switchless call, mark this worker thread
+            // as free by clearing the slot.
+            context->call_arg = NULL;
 
             // Reset spin count for next message.
             context->total_spin_count += context->spin_count;
@@ -85,7 +92,7 @@ oe_result_t oe_start_switchless_manager(
     size_t num_host_workers)
 {
     oe_result_t result = OE_UNEXPECTED;
-    uint64_t result_out = 0;
+    oe_result_t result_out = 0;
     oe_switchless_call_manager_t* manager = NULL;
     oe_host_worker_context_t* contexts = NULL;
     oe_thread_t* threads = NULL;
@@ -139,12 +146,12 @@ oe_result_t oe_start_switchless_manager(
     enclave->switchless_manager = manager;
 
     // Inform the enclave about the switchless manager through an ECALL
-    OE_CHECK(oe_ecall(
+    OE_CHECK(oe_init_context_switchless_ecall(
         enclave,
-        OE_ECALL_INIT_CONTEXT_SWITCHLESS,
-        (uint64_t)manager,
-        &result_out));
-    OE_CHECK((oe_result_t)result_out);
+        &result_out,
+        manager->host_worker_contexts,
+        manager->num_host_workers));
+    OE_CHECK(result_out);
 
     result = OE_OK;
 
@@ -179,8 +186,7 @@ done:
     return result;
 }
 
-void oe_handle_wake_host_worker(uint64_t arg)
+void oe_wake_switchless_worker_ocall(oe_host_worker_context_t* context)
 {
-    oe_host_worker_context_t* context = (oe_host_worker_context_t*)arg;
     oe_host_worker_wake(context);
 }

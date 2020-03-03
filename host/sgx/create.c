@@ -11,6 +11,7 @@
 
 #elif defined(_WIN32)
 #include <windows.h>
+#include "windows/exception.h"
 
 static char* get_fullpath(const char* path)
 {
@@ -74,6 +75,7 @@ static void _initialize_exception_handling(void)
 static void _initialize_enclave_host()
 {
     oe_once(&_enclave_init_once, _initialize_exception_handling);
+    oe_register_switchless_ocall_function_table();
     oe_register_tee_ocall_function_table();
     oe_register_sgx_ocall_function_table();
     oe_register_syscall_ocall_function_table();
@@ -176,6 +178,7 @@ static oe_result_t _add_control_pages(
             OE_RAISE_MSG(
                 OE_FAILURE, "OE_SGX_MAX_TCS (%d) hit\n", OE_SGX_MAX_TCS);
 
+        enclave->bindings[enclave->num_bindings].enclave = enclave;
         enclave->bindings[enclave->num_bindings++].tcs = enclave_addr + *vaddr;
     }
 
@@ -712,6 +715,13 @@ oe_result_t oe_create_enclave(
 
     _initialize_enclave_host();
 
+#if _WIN32
+    if (flags & OE_ENCLAVE_FLAG_SIMULATE)
+    {
+        oe_prepend_simulation_mode_exception_handler();
+    }
+#endif
+
     if (enclave_out)
         *enclave_out = NULL;
 
@@ -729,9 +739,6 @@ oe_result_t oe_create_enclave(
         OE_RAISE(OE_OUT_OF_MEMORY);
 
 #if defined(_WIN32)
-    /* Disable simulation mode on windows */
-    if (flags & OE_ENCLAVE_FLAG_SIMULATE)
-        OE_RAISE(OE_INVALID_PARAMETER);
 
     /* Create Windows events for each TCS binding. Enclaves use
      * this event when calling into the host to handle waits/wakes
@@ -740,7 +747,7 @@ oe_result_t oe_create_enclave(
      */
     for (size_t i = 0; i < enclave->num_bindings; i++)
     {
-        ThreadBinding* binding = &enclave->bindings[i];
+        oe_thread_binding_t* binding = &enclave->bindings[i];
 
         if (!(binding->event.handle = CreateEvent(
                   0,     /* No security attributes */
@@ -872,7 +879,7 @@ oe_result_t oe_terminate_enclave(oe_enclave_t* enclave)
         /* Release Windows events created during enclave creation */
         for (size_t i = 0; i < enclave->num_bindings; i++)
         {
-            ThreadBinding* binding = &enclave->bindings[i];
+            oe_thread_binding_t* binding = &enclave->bindings[i];
             CloseHandle(binding->event.handle);
         }
 

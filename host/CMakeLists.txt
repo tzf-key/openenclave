@@ -22,6 +22,24 @@ add_custom_target(tee_untrusted_edl
 
 ##==============================================================================
 ##
+## These rules generate the edge routines for the internal ECALLs/OCALLs used
+## by switchless calls.
+##
+##==============================================================================
+if (OE_SGX)
+    set(SWITCHLESS_EDL_FILE ${EDL_DIR}/sgx/switchless.edl)
+
+    add_custom_command(
+        OUTPUT switchless_u.h switchless_u.c switchless_args.h
+        DEPENDS ${SWITCHLESS_EDL_FILE} edger8r
+        COMMAND edger8r --search-path ${EDL_DIR} --untrusted ${SWITCHLESS_EDL_FILE})
+
+    add_custom_target(switchless_untrusted_edl
+        DEPENDS switchless_u.h switchless_u.c switchless_args.h)
+endif()
+
+##==============================================================================
+##
 ## These rules generate the edge routines for the internal SGX-specific
 ## ECALLs/OCALLs used by liboehost/liboecore.
 ##
@@ -155,7 +173,6 @@ if (OE_SGX)
     sgx/enclave.c
     sgx/enclavemanager.c
     sgx/exception.c
-    sgx/sgx_u_wrapper.c
     sgx/load.c
     sgx/loadelf.c
     sgx/loadpe.c
@@ -163,12 +180,15 @@ if (OE_SGX)
     sgx/quote.c
     sgx/registers.c
     sgx/report.c
+    sgx/sgx_u_wrapper.c
     sgx/sgxload.c
     sgx/sgxmeasure.c
     sgx/sgxquote.c
     sgx/sgxsign.c
     sgx/sgxtypes.c
-    sgx/switchless.c)
+    sgx/switchless.c
+    sgx/switchless_u_wrapper.c)
+
 
   # OS specific as well.
   if (UNIX)
@@ -179,7 +199,6 @@ if (OE_SGX)
       sgx/linux/aep.S
       sgx/enter.c
       sgx/linux/exception.c
-      sgx/linux/hoststackbridge.c
       sgx/linux/sgxioctl.c
       sgx/linux/switchless.c
       sgx/linux/xstate.c)
@@ -275,13 +294,12 @@ if (OE_SGX AND UNIX)
   # Link oedebugrt static library.
   target_link_libraries(oehost PRIVATE oedebugrt)
 
-  # hoststackbridge and enter.c must be forced to retain the frame-pointer
+  # enter.c must be forced to retain the frame-pointer
   # for ocall stack-stitching by using the -fno-omit-frame-pointer flag.
-  # Both are compiled with -O2 flag to retain the same generated assembly
+  # It is compiled with -O2 flag to retain the same generated assembly
   # code in both debug and release builds.
   set_source_files_properties(oehost
     sgx/enter.c
-    sgx/linux/hoststackbridge.c
     PROPERTIES
     COMPILE_FLAGS "-O2 -fno-omit-frame-pointer")
 endif()
@@ -289,7 +307,7 @@ endif()
 add_dependencies(oehost syscall_untrusted_edl)
 add_dependencies(oehost tee_untrusted_edl)
 if(OE_SGX)
-  add_dependencies(oehost sgx_untrusted_edl)
+  add_dependencies(oehost sgx_untrusted_edl switchless_untrusted_edl)
 endif()
 
 # TODO: Replace these with `find_package` and add as dependencies to
@@ -452,12 +470,13 @@ add_library(oehostapp INTERFACE)
 target_link_libraries(oehostapp INTERFACE oehost)
 
 if (UNIX)
+  target_link_libraries(oehost INTERFACE
+      -Wl,-z,noexecstack)
   target_link_libraries(oehostapp INTERFACE
-      -rdynamic
-      -Wl,-z,noexecstack)
+      -rdynamic)
   target_link_libraries(oehostverify INTERFACE
-      -rdynamic
-      -Wl,-z,noexecstack)
+      -Wl,-z,noexecstack
+      -rdynamic)
 endif ()
 
 # Install targets

@@ -9,15 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased][Unreleased_log]
 ------------
+### Fixed
+- Fix #2607 so that libmbedcrypto now includes mbedtls_hkdf().
 
 [v0.8.1][v0.8.1_log] - 2020-02-07
 ---------------------
+
+### Added
+- Support for Simulation Mode on Windows.
 
 ### Fixed 
 - Fixed Jenkins pipeline to produce a valid open-enclave NuGet package. Fixes #2523. 
 
 ### Changed
 - `oe_random()` now depends on the hardware-based source of RNG instead of cryptography libraries.
+- OCall stack-stitching implemented as per Debugging Contract. OE SDK performs stack stitching
+  instead of the debugger. Enclaves built using a prior release cannot be debugged with this version
+  of oegdb and vice versa.
 
 [v0.8.0][v0.8.0_log] - 2020-01-22
 ---------------------
